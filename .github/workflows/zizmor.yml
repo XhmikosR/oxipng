@@ -1,0 +1,49 @@
+name: zizmor
+
+on:
+  push:
+    paths:
+      - .github/workflows/**
+      - .github/actions/**
+  pull_request:
+    types:
+      - opened
+      - synchronize
+    paths:
+      - .github/workflows/**
+      - .github/actions/**
+  workflow_dispatch:
+
+concurrency:
+  # If we ever end up with two concurrent zizmor jobs for the same commit, the former should be cancelled
+  group: zizmor-${{ github.sha }}
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  zizmor:
+    name: Workflow lint
+
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    # Prevent tags and in-repo PRs from triggering this workflow more than once for a commit
+    if: github.ref_type != 'tag' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork)
+
+    permissions:
+      contents: read
+      security-events: write # Upload the zizmor SARIF report to code scanning
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Run zizmor
+        uses: zizmorcore/zizmor-action@3dc1ecc9bcb9e94e9b2c709687979e1298497054 # v0.6.2
+        with:
+          # Fork PRs get a read-only token, so annotate inline instead of uploading SARIF
+          advanced-security: ${{ github.event_name != 'pull_request' }}
+          annotations: ${{ github.event_name == 'pull_request' }}
