@@ -33,7 +33,7 @@ jobs:
       matrix:
         toolchain:
           - stable
-          - 1.88.0 # MSRV, keep in sync with rust-version in Cargo.toml
+          - msrv
 
     steps:
       - name: Checkout source
@@ -41,10 +41,22 @@ jobs:
         with:
           persist-credentials: false
 
+      # Read the MSRV from Cargo.toml so it only ever has to be bumped in one place
+      - name: Resolve toolchain
+        id: rust
+        env:
+          TOOLCHAIN: ${{ matrix.toolchain }}
+        run: |
+          if [ "$TOOLCHAIN" = msrv ]; then
+            TOOLCHAIN=$(cargo metadata --format-version 1 --no-deps |
+              jq -er '.packages[] | select(.name == "oxipng").rust_version')
+          fi
+          echo "toolchain=$TOOLCHAIN" >> "$GITHUB_OUTPUT"
+
       - name: Install Rust toolchain
         uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
         with:
-          toolchain: ${{ matrix.toolchain }}
+          toolchain: ${{ steps.rust.outputs.toolchain }}
           cache-bin: false
           cache-shared-key: cache
 
