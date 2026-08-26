@@ -560,8 +560,8 @@ impl CoOccurrenceMatrix {
         let mut prev: Option<ScanLine> = None;
         for line in png.scan_lines(false) {
             let mut prev_val = None;
-            for i in 0..line.data.len() {
-                let val = line.data[i] as usize;
+            for (i, &byte) in line.data.iter().enumerate() {
+                let val = byte as usize;
                 if let Some(prev_val) = prev_val.replace(val) {
                     data[prev_val * num_colors + val] += 1;
                 }
