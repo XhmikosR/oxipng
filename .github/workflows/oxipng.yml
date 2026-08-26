@@ -20,14 +20,13 @@ jobs:
     name: CI
 
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
+    timeout-minutes: 30
 
     # Prevent tags and in-repo PRs from triggering this workflow more than once for a commit
     if: github.ref_type != 'tag' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork)
 
     permissions:
       contents: read
-      security-events: write # Upload the Clippy SARIF report to code scanning
 
     strategy:
       fail-fast: false
@@ -84,9 +83,9 @@ jobs:
       - name: Install Rust toolchain
         uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
         with:
-          toolchain: nightly
+          toolchain: nightly-2026-08-25
           target: ${{ env.CARGO_BUILD_TARGET }}
-          components: clippy, rustfmt, rust-src
+          components: rust-src # Required by -Zbuild-std
           cache-bin: false
           cache-shared-key: cache
 
@@ -95,27 +94,6 @@ jobs:
         with:
           tool: nextest
 
-      - name: Install lint tools
-        if: matrix.target == 'x86_64-unknown-linux-gnu'
-        uses: taiki-e/install-action@82cd3e7658a6f96c86c0234aeeda1748937cb0a1 # v2.85.13
-        with:
-          tool: cargo-hack,clippy-sarif,sarif-fmt
-
-      - name: Run rustfmt
-        if: matrix.target == 'x86_64-unknown-linux-gnu'
-        run: cargo fmt --check
-
-      - name: Run Clippy for all feature combinations
-        if: matrix.target == 'x86_64-unknown-linux-gnu'
-        run: >
-          set -o pipefail;
-          cargo hack clippy --no-deps --all-targets --feature-powerset \
-            --exclude-features sanity-checks,system-libdeflate \
-            --message-format=json -- -D warnings \
-          | clippy-sarif
-          | tee clippy-results.sarif
-          | sarif-fmt
-
       - name: Run tests
         run: |
           cargo nextest run --release --features sanity-checks
@@ -123,10 +101,6 @@ jobs:
 
       - name: Build benchmarks
         run: cargo bench --no-run
-
-      - name: Build docs
-        if: matrix.target == 'x86_64-unknown-linux-gnu'
-        run: cargo doc --release --no-deps
 
       - name: Build CLI binary
         run: cargo build --release -Zbuild-std
@@ -141,11 +115,3 @@ jobs:
             target/${{ env.CARGO_BUILD_TARGET }}/release/oxipng
             target/${{ env.CARGO_BUILD_TARGET }}/release/oxipng.exe
           compression-level: 9
-
-      - name: Upload analysis results to GitHub
-        uses: github/codeql-action/upload-sarif@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd # v4.37.7
-        if: always() && matrix.target == 'x86_64-unknown-linux-gnu'
-        continue-on-error: true
-        with:
-          sarif_file: clippy-results.sarif
-          category: clippy

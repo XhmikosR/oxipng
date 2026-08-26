@@ -1,0 +1,74 @@
+name: checks
+
+on:
+  push:
+  pull_request:
+    types:
+      - opened
+      - synchronize
+  workflow_dispatch:
+
+concurrency:
+  # If we ever end up with two concurrent check jobs for the same commit, the former should be cancelled
+  group: checks-${{ github.sha }}
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  checks:
+    name: Checks
+
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    # Prevent tags and in-repo PRs from triggering this workflow more than once for a commit
+    if: github.ref_type != 'tag' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork)
+
+    permissions:
+      contents: read
+      security-events: write # Upload the Clippy SARIF report to code scanning
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
+        with:
+          toolchain: stable
+          components: clippy, rustfmt
+          cache-bin: false
+          cache-shared-key: cache
+
+      - name: Install lint tools
+        uses: taiki-e/install-action@82cd3e7658a6f96c86c0234aeeda1748937cb0a1 # v2.85.13
+        with:
+          tool: cargo-hack,clippy-sarif,sarif-fmt
+
+      - name: Run rustfmt
+        run: cargo fmt --check
+
+      # Benches are skipped because they need nightly for `#![feature(test)]`. The CI workflow still compiles them.
+      - name: Run Clippy for all feature combinations
+        run: >
+          set -o pipefail;
+          cargo hack clippy --no-deps --lib --bins --tests --feature-powerset \
+            --exclude-features sanity-checks,system-libdeflate \
+            --message-format=json -- -D warnings \
+          | clippy-sarif
+          | tee clippy-results.sarif
+          | sarif-fmt
+
+      - name: Build docs
+        run: cargo doc --release --no-deps
+
+      - name: Upload analysis results to GitHub
+        uses: github/codeql-action/upload-sarif@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd # v4.37.7
+        if: always()
+        continue-on-error: true
+        with:
+          sarif_file: clippy-results.sarif
+          category: clippy
